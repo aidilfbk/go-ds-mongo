@@ -229,14 +229,34 @@ func (m *MongoDS) has(ctx context.Context, key datastore.Key) (bool, error) {
 }
 
 func (m *MongoDS) getSize(ctx context.Context, key datastore.Key) (int, error) {
-	v, err := m.get(ctx, key)
+	cursor, err := m.col.Aggregate(ctx, mongo.Pipeline{
+		{{"$match", bson.M{"_id": key.String()}}},
+		{{"$limit", 1}},
+		{{"$project", bson.M{
+			"_id":  0,
+			"size": bson.M{"$binarySize": "$v"},
+		}}},
+	})
 	if err == datastore.ErrNotFound {
 		return -1, err
 	}
 	if err != nil {
 		return 0, fmt.Errorf("getting value: %s", err)
 	}
-	return len(v), nil
+
+	var result bson.M
+	for cursor.Next(ctx) {
+		err = cursor.Decode(&result)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("getting value: %s", err)
+	}
+
+	if size, ok := result["size"]; ok {
+		return int(size.(int32)), nil
+	}
+
+	return -1, datastore.ErrNotFound
 }
 
 func (m *MongoDS) query(ctx context.Context, q dsextensions.QueryExt) (query.Results, error) {
