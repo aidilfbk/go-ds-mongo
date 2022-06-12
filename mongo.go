@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/blang/semver/v4"
 	"regexp"
 	"sync"
 	"time"
@@ -35,6 +36,8 @@ type MongoDS struct {
 
 	lock   sync.RWMutex
 	closed bool
+
+	getSize func(ctx context.Context, key datastore.Key) (int, error)
 }
 
 var _ datastore.Datastore = (*MongoDS)(nil)
@@ -62,13 +65,21 @@ func New(ctx context.Context, uri string, dbName string, opts ...Option) (*Mongo
 	_ = db.CreateCollection(ctx, config.collName)
 	col := db.Collection(config.collName)
 
-	return &MongoDS{
+	ds := &MongoDS{
 		m:          m,
 		db:         db,
 		col:        col,
 		opTimeout:  config.opTimeout,
 		txnTimeout: config.txnTimeout,
-	}, nil
+	}
+
+	if isBinarySizeAggregationSupported, _ := doesServerSupportBinarySizeAggregation(ctx, db); isBinarySizeAggregationSupported {
+		ds.getSize = ds.getSizeUsingAggregate
+	} else {
+		ds.getSize = ds.getSizeByValue
+	}
+
+	return ds, nil
 }
 
 func (m *MongoDS) Batch(ctx context.Context) (datastore.Batch, error) {
@@ -234,7 +245,7 @@ func (m *MongoDS) has(ctx context.Context, key datastore.Key) (bool, error) {
 	return true, nil
 }
 
-func (m *MongoDS) getSize(ctx context.Context, key datastore.Key) (int, error) {
+func (m *MongoDS) getSizeUsingAggregate(ctx context.Context, key datastore.Key) (int, error) {
 	cursor, err := m.col.Aggregate(ctx, mongo.Pipeline{
 		{{"$match", bson.M{"_id": key.String()}}},
 		{{"$limit", 1}},
@@ -263,6 +274,17 @@ func (m *MongoDS) getSize(ctx context.Context, key datastore.Key) (int, error) {
 	}
 
 	return -1, datastore.ErrNotFound
+}
+
+func (m *MongoDS) getSizeByValue(ctx context.Context, key datastore.Key) (int, error) {
+	v, err := m.get(ctx, key)
+	if err == datastore.ErrNotFound {
+		return -1, err
+	}
+	if err != nil {
+		return 0, fmt.Errorf("getting value: %s", err)
+	}
+	return len(v), nil
 }
 
 func (m *MongoDS) query(ctx context.Context, q dsextensions.QueryExt) (query.Results, error) {
@@ -503,4 +525,26 @@ func filter(filters []dsq.Filter, entry dsq.Entry) bool {
 		}
 	}
 	return false
+}
+
+func doesServerSupportBinarySizeAggregation(ctx context.Context, db *mongo.Database) (supported bool, err error) {
+	minVersion := semver.Version{Major: 4, Minor: 4, Patch: 0}
+
+	var dbStats bson.M
+	err = db.RunCommand(ctx, bson.M{"buildInfo": 1}).Decode(&dbStats)
+	if err != nil {
+		return false, err
+	}
+
+	version, ok := dbStats["version"].(string)
+	if !ok {
+		return false, fmt.Errorf("dbStats did not return version field")
+	}
+
+	serverVersion, err := semver.Parse(version)
+	if err != nil {
+		return false, err
+	}
+
+	return serverVersion.GTE(minVersion), nil
 }
