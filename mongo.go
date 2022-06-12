@@ -218,7 +218,10 @@ func (m *MongoDS) put(ctx context.Context, key datastore.Key, val []byte) error 
 }
 
 func (m *MongoDS) has(ctx context.Context, key datastore.Key) (bool, error) {
-	sr := m.col.FindOne(ctx, bson.M{"_id": key.String()})
+	// don't fetch any fields
+	optProjectNothing := options.FindOne().SetProjection(bson.D{{"v", 0}, {"_id", 0}})
+
+	sr := m.col.FindOne(ctx, bson.M{"_id": key.String()}, optProjectNothing)
 	if sr.Err() == mongo.ErrNoDocuments {
 		return false, nil
 	}
