@@ -89,7 +89,7 @@ func StartMongoDB() (cleanup func()) {
 }
 
 func checkServices() error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+	ctx, cancel := context.WithTimeout(context.TODO(), time.Second*3)
 	defer cancel()
 	mc, err := mongo.Connect(ctx, options.Client().ApplyURI(GetMongoUri()))
 	if err != nil {
