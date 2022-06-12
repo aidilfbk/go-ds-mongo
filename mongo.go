@@ -316,7 +316,11 @@ func (m *MongoDS) query(ctx context.Context, q dsextensions.QueryExt) (query.Res
 	// of returning strictly child keys.
 	var filters bson.A
 	if prefix != "/" {
-		rgx := fmt.Sprintf("^%s/.*", regexp.QuoteMeta(prefix))
+		// "[...] while /^a/, /^a.*/, and /^a.*$/ match equivalent strings, they have different performance characteristics.
+		// All of these expressions use an index if an appropriate index exists; however, /^a.*/, and /^a.*$/ are
+		// slower. /^a/ can stop scanning after matching the prefix."
+		// https://www.mongodb.com/docs/manual/reference/operator/query/regex/#index-use
+		rgx := fmt.Sprintf("^%s/", regexp.QuoteMeta(prefix))
 		filters = append(filters, bson.M{"_id": bson.M{"$regex": primitive.Regex{Pattern: rgx}}})
 	}
 	seekPrefix := datastore.NewKey(q.SeekPrefix).String()
