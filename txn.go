@@ -30,15 +30,15 @@ type mongoTxn struct {
 
 var _ dsextensions.TxnExt = (*mongoTxn)(nil)
 
-func (m *MongoDS) NewTransaction(readOnly bool) (datastore.Txn, error) {
-	return m.newTransaction(readOnly)
+func (m *MongoDS) NewTransaction(ctx context.Context, readOnly bool) (datastore.Txn, error) {
+	return m.newTransaction(ctx, readOnly)
 }
 
-func (m *MongoDS) NewTransactionExtended(readOnly bool) (dsextensions.TxnExt, error) {
-	return m.newTransaction(readOnly)
+func (m *MongoDS) NewTransactionExtended(ctx context.Context, readOnly bool) (dsextensions.TxnExt, error) {
+	return m.newTransaction(ctx, readOnly)
 }
 
-func (m *MongoDS) newTransaction(bool) (dsextensions.TxnExt, error) {
+func (m *MongoDS) newTransaction(ctx context.Context, _ bool) (dsextensions.TxnExt, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 	if m.closed {
@@ -57,49 +57,49 @@ func (m *MongoDS) newTransaction(bool) (dsextensions.TxnExt, error) {
 	return &mongoTxn{
 		session: session,
 		m:       m,
-		ctx:     mongo.NewSessionContext(context.Background(), session),
+		ctx:     mongo.NewSessionContext(ctx, session),
 	}, nil
 }
 
-func (t *mongoTxn) Commit() error {
+func (t *mongoTxn) Commit(ctx context.Context) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	if t.finalized {
 		return ErrTxnFinalized
 	}
 
-	ctx, cls := context.WithTimeout(context.Background(), t.m.txnTimeout)
+	ctx, cls := context.WithTimeout(ctx, t.m.txnTimeout)
 	defer cls()
 	if err := t.session.CommitTransaction(ctx); err != nil {
 		return fmt.Errorf("commiting session txn: %s", err)
 	}
 	t.finalized = true
-	ctx, cls = context.WithTimeout(context.Background(), t.m.opTimeout)
+	ctx, cls = context.WithTimeout(ctx, t.m.opTimeout)
 	defer cls()
 	t.session.EndSession(ctx)
 
 	return nil
 }
 
-func (t *mongoTxn) Discard() {
+func (t *mongoTxn) Discard(ctx context.Context) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	if t.finalized {
 		return
 	}
 
-	ctx, cls := context.WithTimeout(context.Background(), t.m.txnTimeout)
+	ctx, cls := context.WithTimeout(ctx, t.m.txnTimeout)
 	defer cls()
 	if err := t.session.AbortTransaction(ctx); err != nil {
 		log.Errorf("aborting transaction: %s", err)
 	}
 
-	ctx, cls = context.WithTimeout(context.Background(), t.m.opTimeout)
+	ctx, cls = context.WithTimeout(ctx, t.m.opTimeout)
 	defer cls()
 	t.session.EndSession(ctx)
 }
 
-func (t *mongoTxn) Get(key datastore.Key) ([]byte, error) {
+func (t *mongoTxn) Get(ctx context.Context, key datastore.Key) ([]byte, error) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	if t.finalized {
@@ -108,7 +108,7 @@ func (t *mongoTxn) Get(key datastore.Key) ([]byte, error) {
 	return t.m.get(t.ctx, key)
 }
 
-func (t *mongoTxn) Has(key datastore.Key) (bool, error) {
+func (t *mongoTxn) Has(ctx context.Context, key datastore.Key) (bool, error) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	if t.finalized {
@@ -117,7 +117,7 @@ func (t *mongoTxn) Has(key datastore.Key) (bool, error) {
 	return t.m.has(t.ctx, key)
 }
 
-func (t *mongoTxn) GetSize(key datastore.Key) (int, error) {
+func (t *mongoTxn) GetSize(ctx context.Context, key datastore.Key) (int, error) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	if t.finalized {
@@ -126,7 +126,7 @@ func (t *mongoTxn) GetSize(key datastore.Key) (int, error) {
 	return t.m.getSize(t.ctx, key)
 }
 
-func (t *mongoTxn) Query(q query.Query) (query.Results, error) {
+func (t *mongoTxn) Query(ctx context.Context, q query.Query) (query.Results, error) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	if t.finalized {
@@ -136,7 +136,7 @@ func (t *mongoTxn) Query(q query.Query) (query.Results, error) {
 	return t.m.query(t.ctx, qe)
 }
 
-func (t *mongoTxn) QueryExtended(q dsextensions.QueryExt) (query.Results, error) {
+func (t *mongoTxn) QueryExtended(ctx context.Context, q dsextensions.QueryExt) (query.Results, error) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	if t.finalized {
@@ -145,7 +145,7 @@ func (t *mongoTxn) QueryExtended(q dsextensions.QueryExt) (query.Results, error)
 	return t.m.query(t.ctx, q)
 }
 
-func (t *mongoTxn) Delete(key datastore.Key) error {
+func (t *mongoTxn) Delete(ctx context.Context, key datastore.Key) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	if t.finalized {
@@ -154,7 +154,7 @@ func (t *mongoTxn) Delete(key datastore.Key) error {
 	return t.m.delete(t.ctx, key)
 }
 
-func (t *mongoTxn) Put(key datastore.Key, val []byte) error {
+func (t *mongoTxn) Put(ctx context.Context, key datastore.Key, val []byte) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	if t.finalized {
