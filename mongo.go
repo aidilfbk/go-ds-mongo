@@ -186,7 +186,10 @@ func (m *MongoDS) Close() error {
 }
 
 func (m *MongoDS) get(ctx context.Context, key datastore.Key) ([]byte, error) {
-	sr := m.col.FindOne(ctx, bson.M{"_id": key.String()})
+	// only fetch v field
+	optProjectVal := options.FindOne().SetProjection(bson.D{{"v", 1}, {"_id", 0}})
+
+	sr := m.col.FindOne(ctx, bson.M{"_id": key.String()}, optProjectVal)
 	if sr.Err() == mongo.ErrNoDocuments {
 		return nil, datastore.ErrNotFound
 	}
