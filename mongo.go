@@ -71,7 +71,7 @@ func New(ctx context.Context, uri string, dbName string, opts ...Option) (*Mongo
 	}, nil
 }
 
-func (m *MongoDS) Batch() (datastore.Batch, error) {
+func (m *MongoDS) Batch(ctx context.Context) (datastore.Batch, error) {
 	return &mongoBatch{
 		ds:      m,
 		deletes: map[datastore.Key]struct{}{},
